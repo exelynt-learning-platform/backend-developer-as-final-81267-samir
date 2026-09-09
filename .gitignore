@@ -1,0 +1,10 @@
+.env
+target/
+.idea/
+.vscode/
+.cursor/
+.windsurf/
+*.iml
+*.log
+*.sql
+*.db
