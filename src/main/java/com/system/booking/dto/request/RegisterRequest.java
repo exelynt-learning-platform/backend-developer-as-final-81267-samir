@@ -1,6 +1,5 @@
 package com.system.booking.dto.request;
 
-import com.system.booking.model.enums.Role;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 import lombok.AllArgsConstructor;
@@ -22,5 +21,8 @@ public class RegisterRequest {
     @Size(min = 6, message = "Password must be at least 6 characters long")
     private String password;
 
-    private Role role;
+    // NOTE: 'role' field intentionally removed.
+    // Public registration always assigns ROLE_USER.
+    // Admin account provisioning must be done via a separate admin-only endpoint
+    // or directly through the DataInitializer startup seeder.
 }

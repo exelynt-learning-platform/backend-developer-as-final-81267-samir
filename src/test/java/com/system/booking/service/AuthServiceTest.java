@@ -94,19 +94,17 @@ class AuthServiceTest {
         when(authenticationManager.authenticate(any(UsernamePasswordAuthenticationToken.class)))
                 .thenThrow(new BadCredentialsException("Bad credentials"));
 
-        assertThrows(
-                BadCredentialsException.class,
-                () -> authService.login(request)
-        );
+        assertThrows(BadCredentialsException.class, () -> authService.login(request));
     }
 
     @Test
-    @DisplayName("Should register a new user successfully")
-    void register_Success() {
+    @DisplayName("Should register a new user successfully and always assign ROLE_USER")
+    void register_Success_AlwaysAssignsRoleUser() {
+        // NOTE: 'role' field has been removed from RegisterRequest.
+        // Public registration always assigns ROLE_USER regardless of what the client sends.
         RegisterRequest request = RegisterRequest.builder()
                 .username("new_user")
                 .password("secret123")
-                .role(Role.ROLE_USER)
                 .build();
 
         when(userRepository.existsByUsername("new_user")).thenReturn(false);
@@ -119,6 +117,7 @@ class AuthServiceTest {
         assertNotNull(response);
         assertEquals("mock.registered.token", response.getToken());
         assertEquals("new_user", response.getUsername());
+        // Verify always ROLE_USER — privilege escalation is not possible via public registration
         assertEquals("ROLE_USER", response.getRole());
         verify(userRepository, times(1)).save(any(User.class));
     }

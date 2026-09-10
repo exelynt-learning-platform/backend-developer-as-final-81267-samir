@@ -12,6 +12,7 @@ import com.system.booking.model.enums.Role;
 import com.system.booking.repository.ReservationRepository;
 import com.system.booking.repository.ResourceRepository;
 import com.system.booking.repository.UserRepository;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -19,11 +20,6 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.PageImpl;
-import org.springframework.data.domain.PageRequest;
-import org.springframework.data.domain.Pageable;
-import org.springframework.data.jpa.domain.Specification;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
@@ -33,7 +29,6 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.Collections;
-import java.util.List;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -89,6 +84,36 @@ class ReservationServiceTest {
                 .build();
     }
 
+    @AfterEach
+    void tearDown() {
+        SecurityContextHolder.clearContext();
+    }
+
+    // ---------------------------------------------------------------------------
+    // Helper: sets up SecurityContextHolder with a standard ROLE_USER principal
+    // ---------------------------------------------------------------------------
+    private void setupSecurityContextAsUser(String username) {
+        lenient().when(securityContext.getAuthentication()).thenReturn(authentication);
+        lenient().when(authentication.isAuthenticated()).thenReturn(true);
+        lenient().when(authentication.getName()).thenReturn(username);
+        lenient().doReturn(Collections.singletonList(new SimpleGrantedAuthority("ROLE_USER")))
+                .when(authentication).getAuthorities();
+        SecurityContextHolder.setContext(securityContext);
+    }
+
+    private void setupSecurityContextAsAdmin(String username) {
+        lenient().when(securityContext.getAuthentication()).thenReturn(authentication);
+        lenient().when(authentication.isAuthenticated()).thenReturn(true);
+        lenient().when(authentication.getName()).thenReturn(username);
+        lenient().doReturn(Collections.singletonList(new SimpleGrantedAuthority("ROLE_ADMIN")))
+                .when(authentication).getAuthorities();
+        SecurityContextHolder.setContext(securityContext);
+    }
+
+    // ---------------------------------------------------------------------------
+    // createReservation tests
+    // ---------------------------------------------------------------------------
+
     @Test
     @DisplayName("Should extract authenticated user identity from SecurityContext and create reservation")
     void createReservation_Success() {
@@ -102,13 +127,11 @@ class ReservationServiceTest {
                 .price(new BigDecimal("150.00"))
                 .build();
 
-        when(securityContext.getAuthentication()).thenReturn(authentication);
-        when(authentication.isAuthenticated()).thenReturn(true);
-        when(authentication.getName()).thenReturn("john_doe");
-        SecurityContextHolder.setContext(securityContext);
+        setupSecurityContextAsUser("john_doe");
 
         when(userRepository.findByUsername("john_doe")).thenReturn(Optional.of(testUser));
-        when(resourceRepository.findById(10L)).thenReturn(Optional.of(testResource));
+        // IMPORTANT: service now uses findByIdWithLock (pessimistic write) not findById
+        when(resourceRepository.findByIdWithLock(10L)).thenReturn(Optional.of(testResource));
         when(reservationRepository.existsOverlappingReservation(10L, start, end)).thenReturn(false);
 
         Reservation savedReservation = Reservation.builder()
@@ -120,7 +143,6 @@ class ReservationServiceTest {
                 .price(new BigDecimal("150.00"))
                 .status(ReservationStatus.CONFIRMED)
                 .build();
-
         when(reservationRepository.save(any(Reservation.class))).thenReturn(savedReservation);
 
         ReservationResponse response = reservationService.createReservation(request);
@@ -132,15 +154,17 @@ class ReservationServiceTest {
         assertEquals(10L, response.getResourceId());
         assertEquals(ReservationStatus.CONFIRMED, response.getStatus());
 
-        verify(userRepository, times(1)).findByUsername("john_doe");
-        verify(reservationRepository, times(1)).save(any(Reservation.class));
+        verify(userRepository).findByUsername("john_doe");
+        verify(resourceRepository).findByIdWithLock(10L);
+        verify(reservationRepository).existsOverlappingReservation(10L, start, end);
+        verify(reservationRepository).save(any(Reservation.class));
     }
 
     @Test
     @DisplayName("Should throw IllegalArgumentException when endTime is before or equal to startTime")
     void createReservation_InvalidDateOrder_ThrowsException() {
         LocalDateTime start = LocalDateTime.now().plusDays(1);
-        LocalDateTime end = start.minusHours(1);
+        LocalDateTime end = start.minusHours(1); // end BEFORE start
 
         ReservationRequest request = ReservationRequest.builder()
                 .resourceId(10L)
@@ -149,11 +173,7 @@ class ReservationServiceTest {
                 .price(new BigDecimal("100.00"))
                 .build();
 
-        when(securityContext.getAuthentication()).thenReturn(authentication);
-        when(authentication.isAuthenticated()).thenReturn(true);
-        when(authentication.getName()).thenReturn("john_doe");
-        SecurityContextHolder.setContext(securityContext);
-
+        setupSecurityContextAsUser("john_doe");
         when(userRepository.findByUsername("john_doe")).thenReturn(Optional.of(testUser));
 
         IllegalArgumentException exception = assertThrows(
@@ -166,7 +186,7 @@ class ReservationServiceTest {
     }
 
     @Test
-    @DisplayName("Should throw ResourceConflictException when resource is already booked for the time window")
+    @DisplayName("Should throw ResourceConflictException when resource is already booked (double-booking)")
     void createReservation_OverlappingReservation_ThrowsResourceConflictException() {
         LocalDateTime start = LocalDateTime.now().plusDays(1);
         LocalDateTime end = start.plusHours(2);
@@ -178,13 +198,10 @@ class ReservationServiceTest {
                 .price(new BigDecimal("200.00"))
                 .build();
 
-        when(securityContext.getAuthentication()).thenReturn(authentication);
-        when(authentication.isAuthenticated()).thenReturn(true);
-        when(authentication.getName()).thenReturn("john_doe");
-        SecurityContextHolder.setContext(securityContext);
-
+        setupSecurityContextAsUser("john_doe");
         when(userRepository.findByUsername("john_doe")).thenReturn(Optional.of(testUser));
-        when(resourceRepository.findById(10L)).thenReturn(Optional.of(testResource));
+        // Service uses findByIdWithLock to prevent race conditions
+        when(resourceRepository.findByIdWithLock(10L)).thenReturn(Optional.of(testResource));
         when(reservationRepository.existsOverlappingReservation(10L, start, end)).thenReturn(true);
 
         ResourceConflictException exception = assertThrows(
@@ -195,6 +212,10 @@ class ReservationServiceTest {
         assertTrue(exception.getMessage().contains("already booked"));
         verify(reservationRepository, never()).save(any(Reservation.class));
     }
+
+    // ---------------------------------------------------------------------------
+    // getReservationById tests
+    // ---------------------------------------------------------------------------
 
     @Test
     @DisplayName("Should retrieve reservation by ID for the reservation owner")
@@ -210,10 +231,7 @@ class ReservationServiceTest {
                 .build();
 
         when(reservationRepository.findById(100L)).thenReturn(Optional.of(reservation));
-        when(securityContext.getAuthentication()).thenReturn(authentication);
-        when(authentication.getName()).thenReturn("john_doe");
-        doReturn(Collections.singletonList(new SimpleGrantedAuthority("ROLE_USER"))).when(authentication).getAuthorities();
-        SecurityContextHolder.setContext(securityContext);
+        setupSecurityContextAsUser("john_doe");
 
         ReservationResponse response = reservationService.getReservationById(100L);
 
@@ -223,8 +241,9 @@ class ReservationServiceTest {
     }
 
     @Test
-    @DisplayName("Should throw AccessDeniedException when non-owner standard user tries to view reservation")
+    @DisplayName("Should throw AccessDeniedException when non-owner tries to view another user's reservation")
     void getReservationById_AsNonOwner_ThrowsAccessDeniedException() {
+        // Reservation belongs to anotherUser (jane_doe), but john_doe is trying to access it
         Reservation reservation = Reservation.builder()
                 .id(100L)
                 .user(anotherUser)
@@ -236,16 +255,38 @@ class ReservationServiceTest {
                 .build();
 
         when(reservationRepository.findById(100L)).thenReturn(Optional.of(reservation));
-        when(securityContext.getAuthentication()).thenReturn(authentication);
-        when(authentication.getName()).thenReturn("john_doe");
-        doReturn(Collections.singletonList(new SimpleGrantedAuthority("ROLE_USER"))).when(authentication).getAuthorities();
-        SecurityContextHolder.setContext(securityContext);
+        setupSecurityContextAsUser("john_doe");
 
         assertThrows(
                 AccessDeniedException.class,
                 () -> reservationService.getReservationById(100L)
         );
     }
+
+    @Test
+    @DisplayName("Admin should be able to view any user's reservation")
+    void getReservationById_AsAdmin_Success() {
+        Reservation reservation = Reservation.builder()
+                .id(100L)
+                .user(anotherUser)
+                .resource(testResource)
+                .startTime(LocalDateTime.now().plusDays(1))
+                .endTime(LocalDateTime.now().plusDays(1).plusHours(2))
+                .price(new BigDecimal("100.00"))
+                .status(ReservationStatus.CONFIRMED)
+                .build();
+
+        when(reservationRepository.findById(100L)).thenReturn(Optional.of(reservation));
+        setupSecurityContextAsAdmin("admin");
+
+        ReservationResponse response = reservationService.getReservationById(100L);
+        assertNotNull(response);
+        assertEquals(100L, response.getId());
+    }
+
+    // ---------------------------------------------------------------------------
+    // cancelReservation tests
+    // ---------------------------------------------------------------------------
 
     @Test
     @DisplayName("Should cancel reservation successfully when requested by owner")
@@ -261,22 +302,23 @@ class ReservationServiceTest {
                 .build();
 
         when(reservationRepository.findById(100L)).thenReturn(Optional.of(reservation));
-        when(securityContext.getAuthentication()).thenReturn(authentication);
-        when(authentication.getName()).thenReturn("john_doe");
-        doReturn(Collections.singletonList(new SimpleGrantedAuthority("ROLE_USER"))).when(authentication).getAuthorities();
-        SecurityContextHolder.setContext(securityContext);
-
-        when(reservationRepository.save(any(Reservation.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        setupSecurityContextAsUser("john_doe");
+        when(reservationRepository.save(any(Reservation.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
 
         ReservationResponse response = reservationService.cancelReservation(100L);
 
         assertNotNull(response);
         assertEquals(ReservationStatus.CANCELLED, response.getStatus());
-        verify(reservationRepository, times(1)).save(reservation);
+        verify(reservationRepository).save(reservation);
     }
 
+    // ---------------------------------------------------------------------------
+    // updateReservationStatus tests
+    // ---------------------------------------------------------------------------
+
     @Test
-    @DisplayName("Should update reservation status directly for admin")
+    @DisplayName("Admin should update reservation status directly")
     void updateReservationStatus_Success() {
         Reservation reservation = Reservation.builder()
                 .id(100L)
@@ -289,7 +331,8 @@ class ReservationServiceTest {
                 .build();
 
         when(reservationRepository.findById(100L)).thenReturn(Optional.of(reservation));
-        when(reservationRepository.save(any(Reservation.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(reservationRepository.save(any(Reservation.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
 
         ReservationResponse response = reservationService.updateReservationStatus(100L, ReservationStatus.CONFIRMED);
 

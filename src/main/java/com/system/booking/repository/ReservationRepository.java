@@ -34,9 +34,11 @@ public interface ReservationRepository extends JpaRepository<Reservation, Long>,
     @EntityGraph(attributePaths = {"user", "resource"})
     Optional<Reservation> findById(@NonNull Long id);
 
-    @EntityGraph(attributePaths = {"user", "resource"})
-    List<Reservation> findByUserId(Long userId);
-
+    /**
+     * Checks for any non-CANCELLED reservation on the same resource whose time range
+     * overlaps with the requested [startTime, endTime) window.
+     * Used in conjunction with PESSIMISTIC_WRITE lock on Resource to prevent race conditions.
+     */
     @Query("SELECT COUNT(r) > 0 FROM Reservation r " +
            "WHERE r.resource.id = :resourceId " +
            "AND r.status <> com.system.booking.model.enums.ReservationStatus.CANCELLED " +
@@ -44,18 +46,6 @@ public interface ReservationRepository extends JpaRepository<Reservation, Long>,
            "AND r.endTime > :startTime")
     boolean existsOverlappingReservation(
             @Param("resourceId") Long resourceId,
-            @Param("startTime") LocalDateTime startTime,
-            @Param("endTime") LocalDateTime endTime);
-
-    @Query("SELECT COUNT(r) > 0 FROM Reservation r " +
-           "WHERE r.resource.id = :resourceId " +
-           "AND r.id <> :reservationId " +
-           "AND r.status <> com.system.booking.model.enums.ReservationStatus.CANCELLED " +
-           "AND r.startTime < :endTime " +
-           "AND r.endTime > :startTime")
-    boolean existsOverlappingReservationExcludingId(
-            @Param("resourceId") Long resourceId,
-            @Param("reservationId") Long reservationId,
             @Param("startTime") LocalDateTime startTime,
             @Param("endTime") LocalDateTime endTime);
 }

@@ -13,6 +13,7 @@ import jakarta.persistence.Index;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
+import jakarta.persistence.Version;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
@@ -28,7 +29,8 @@ import java.time.LocalDateTime;
     indexes = {
         @Index(name = "idx_reservation_user_id", columnList = "user_id"),
         @Index(name = "idx_reservation_status_price", columnList = "status, price"),
-        @Index(name = "idx_reservation_start_end_time", columnList = "startTime, endTime")
+        // Fix: use physical snake_case column names consistent with JPA naming strategy
+        @Index(name = "idx_reservation_start_end_time", columnList = "start_time, end_time")
     }
 )
 @Getter
@@ -50,10 +52,10 @@ public class Reservation {
     @JoinColumn(name = "resource_id", nullable = false)
     private Resource resource;
 
-    @Column(nullable = false)
+    @Column(name = "start_time", nullable = false)
     private LocalDateTime startTime;
 
-    @Column(nullable = false)
+    @Column(name = "end_time", nullable = false)
     private LocalDateTime endTime;
 
     @Column(nullable = false, precision = 10, scale = 2)
@@ -62,4 +64,11 @@ public class Reservation {
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
     private ReservationStatus status;
+
+    /**
+     * Optimistic locking version field.
+     * Prevents lost-update anomalies on concurrent cancel/confirm flows.
+     */
+    @Version
+    private Long version;
 }

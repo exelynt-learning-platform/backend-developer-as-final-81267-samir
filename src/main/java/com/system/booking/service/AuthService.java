@@ -61,7 +61,9 @@ public class AuthService {
             throw new BadRequestException("Username '" + request.getUsername() + "' is already taken");
         }
 
-        Role assignedRole = request.getRole() != null ? request.getRole() : Role.ROLE_USER;
+        // SECURITY: Public registration always assigns ROLE_USER.
+        // Admin account provisioning is handled by DataInitializer or a protected admin endpoint.
+        final Role assignedRole = Role.ROLE_USER;
 
         User user = User.builder()
                 .username(request.getUsername())

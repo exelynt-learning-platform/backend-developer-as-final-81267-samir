@@ -2,7 +2,7 @@ spring:
   datasource:
     url: ${DB_URL:jdbc:mysql://localhost:3306/booking_db?useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true&cachePrepStmts=true&prepStmtCacheSize=250&prepStmtCacheSqlLimit=2048&useServerPrepStmts=true}
     username: ${DB_USERNAME:root}
-    password: ${DB_PASSWORD:root}
+    password: ${DB_PASSWORD:}
     driver-class-name: com.mysql.cj.jdbc.Driver
     hikari:
       maximum-pool-size: 20
@@ -18,5 +18,12 @@ spring:
 
 app:
   jwt:
-    secret: ${JWT_SECRET:404E635266556A586E3272357538782F413F4428472B4B6250645367566B5970}
-    expiration-ms: 86400000
+    # REQUIRED: No default value. Set JWT_SECRET env var to a random 256-bit hex string.
+    # Generate: openssl rand -hex 32
+    # The application will REFUSE to start if this is missing or shorter than 32 chars.
+    secret: ${JWT_SECRET}
+    expiration-ms: ${JWT_EXPIRATION_MS:86400000}
+  seed:
+    enabled: ${SEED_ENABLED:true}
+    admin-password: ${SEED_ADMIN_PASSWORD:admin123}
+    user-password: ${SEED_USER_PASSWORD:user123}

@@ -1,5 +1,6 @@
 package com.system.booking.dto.request;
 
+import com.system.booking.validation.EndTimeAfterStartTime;
 import jakarta.validation.constraints.Future;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Positive;
@@ -15,6 +16,7 @@ import java.time.LocalDateTime;
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
+@EndTimeAfterStartTime
 public class ReservationRequest {
 
     @NotNull(message = "Resource ID is mandatory")

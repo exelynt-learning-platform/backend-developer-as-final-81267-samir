@@ -8,6 +8,9 @@ import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.web.PageableDefault;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -41,10 +44,17 @@ public class ResourceController {
 
     @GetMapping
     @PreAuthorize("hasAnyRole('USER', 'ADMIN')")
-    @Operation(summary = "Get All Resources", description = "USER/ADMIN: Retrieves a list of all available bookable resources")
+    @Operation(summary = "Get All Resources (List)", description = "USER/ADMIN: Retrieves all resources as a flat list")
     public ResponseEntity<List<ResourceResponse>> getAllResources() {
-        List<ResourceResponse> resources = resourceService.getAllResources();
-        return ResponseEntity.ok(resources);
+        return ResponseEntity.ok(resourceService.getAllResources());
+    }
+
+    @GetMapping("/paged")
+    @PreAuthorize("hasAnyRole('USER', 'ADMIN')")
+    @Operation(summary = "Get All Resources (Paginated)", description = "USER/ADMIN: Retrieves resources with pagination and sorting support")
+    public ResponseEntity<Page<ResourceResponse>> getAllResourcesPaged(
+            @PageableDefault(size = 10, sort = "name") Pageable pageable) {
+        return ResponseEntity.ok(resourceService.getAllResourcesPaged(pageable));
     }
 
     @GetMapping("/{id}")

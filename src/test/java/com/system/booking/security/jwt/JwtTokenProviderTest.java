@@ -1,5 +1,6 @@
 package com.system.booking.security.jwt;
 
+import com.system.booking.config.JwtProperties;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -9,12 +10,19 @@ import static org.junit.jupiter.api.Assertions.*;
 class JwtTokenProviderTest {
 
     private JwtTokenProvider jwtTokenProvider;
-    private final String testSecret = "404E635266556A586E3272357538782F413F4428472B4B6250645367566B5970";
-    private final long testExpirationMs = 3600000; // 1 hour
+
+    private JwtProperties buildProperties(String secret, long expirationMs) {
+        JwtProperties props = new JwtProperties();
+        props.setSecret(secret);
+        props.setExpirationMs(expirationMs);
+        return props;
+    }
 
     @BeforeEach
     void setUp() {
-        jwtTokenProvider = new JwtTokenProvider(testSecret, testExpirationMs);
+        jwtTokenProvider = new JwtTokenProvider(
+                buildProperties("404E635266556A586E3272357538782F413F4428472B4B6250645367566B5970", 3600000L)
+        );
     }
 
     @Test
@@ -33,30 +41,24 @@ class JwtTokenProviderTest {
     @DisplayName("Should validate valid token successfully")
     void validateToken_ValidToken_ReturnsTrue() {
         String token = jwtTokenProvider.generateToken("test_user", "ROLE_USER");
-        boolean isValid = jwtTokenProvider.validateToken(token);
-
-        assertTrue(isValid);
+        assertTrue(jwtTokenProvider.validateToken(token));
     }
 
     @Test
     @DisplayName("Should return false for invalid token signature")
     void validateToken_InvalidSignature_ReturnsFalse() {
         JwtTokenProvider anotherProvider = new JwtTokenProvider(
-                "884E635266556A586E3272357538782F413F4428472B4B6250645367566B5970",
-                testExpirationMs
+                buildProperties("884E635266556A586E3272357538782F413F4428472B4B6250645367566B5970", 3600000L)
         );
 
         String token = anotherProvider.generateToken("test_user", "ROLE_USER");
-        boolean isValid = jwtTokenProvider.validateToken(token);
-
-        assertFalse(isValid);
+        assertFalse(jwtTokenProvider.validateToken(token));
     }
 
     @Test
     @DisplayName("Should return false for malformed token string")
     void validateToken_MalformedToken_ReturnsFalse() {
-        boolean isValid = jwtTokenProvider.validateToken("not.a.valid.jwt.token");
-        assertFalse(isValid);
+        assertFalse(jwtTokenProvider.validateToken("not.a.valid.jwt.token"));
     }
 
     @Test

@@ -37,19 +37,20 @@ public class ReservationService {
 
     @Transactional
     public ReservationResponse createReservation(ReservationRequest request) {
-        String username = getCurrentUsername();
+        String username = currentUsername();
         User user = userRepository.findByUsername(username)
                 .orElseThrow(() -> new ResourceNotFoundException("User", "username", username));
 
-        if (request.getStartTime() == null || request.getEndTime() == null) {
-            throw new IllegalArgumentException("Start time and end time must not be null");
-        }
-
+        // endTime > startTime is already enforced by @EndTimeAfterStartTime on the DTO.
+        // Remaining validation: endTime must be strictly after startTime (belt-and-suspenders).
         if (!request.getEndTime().isAfter(request.getStartTime())) {
             throw new IllegalArgumentException("End time must be strictly after start time");
         }
 
-        Resource resource = resourceRepository.findById(request.getResourceId())
+        // CONCURRENCY FIX: Acquire PESSIMISTIC_WRITE (SELECT ... FOR UPDATE) lock on the
+        // resource row BEFORE the overlap check, ensuring the check + insert are atomic
+        // and preventing race conditions on concurrent booking requests.
+        Resource resource = resourceRepository.findByIdWithLock(request.getResourceId())
                 .orElseThrow(() -> new ResourceNotFoundException("Resource", "id", request.getResourceId()));
 
         boolean isOverlapping = reservationRepository.existsOverlappingReservation(
@@ -73,7 +74,6 @@ public class ReservationService {
 
         Reservation saved = reservationRepository.save(reservation);
         log.info("Reservation created successfully with ID: {} for user: {}", saved.getId(), username);
-
         return ReservationResponse.fromEntity(saved);
     }
 
@@ -84,24 +84,16 @@ public class ReservationService {
             BigDecimal maxPrice,
             Pageable pageable) {
 
-        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
-        String currentUsername = authentication.getName();
-        boolean isAdmin = authentication.getAuthorities().stream()
-                .anyMatch(a -> a.getAuthority().equals(Role.ROLE_ADMIN.name()));
-
+        Authentication auth = currentAuthentication();
         Long filterUserId = null;
-        if (!isAdmin) {
-            User currentUser = userRepository.findByUsername(currentUsername)
-                    .orElseThrow(() -> new ResourceNotFoundException("User", "username", currentUsername));
+        if (!isAdmin(auth)) {
+            User currentUser = userRepository.findByUsername(auth.getName())
+                    .orElseThrow(() -> new ResourceNotFoundException("User", "username", auth.getName()));
             filterUserId = currentUser.getId();
         }
 
         Specification<Reservation> spec = ReservationSpecification.filterReservations(
-                filterUserId,
-                status,
-                minPrice,
-                maxPrice
-        );
+                filterUserId, status, minPrice, maxPrice);
 
         return reservationRepository.findAll(spec, pageable)
                 .map(ReservationResponse::fromEntity);
@@ -112,15 +104,10 @@ public class ReservationService {
         Reservation reservation = reservationRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Reservation", "id", id));
 
-        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
-        String currentUsername = authentication.getName();
-        boolean isAdmin = authentication.getAuthorities().stream()
-                .anyMatch(a -> a.getAuthority().equals(Role.ROLE_ADMIN.name()));
-
-        if (!isAdmin && !reservation.getUser().getUsername().equals(currentUsername)) {
+        Authentication auth = currentAuthentication();
+        if (!isAdmin(auth) && !reservation.getUser().getUsername().equals(auth.getName())) {
             throw new AccessDeniedException("You do not have permission to access this reservation");
         }
-
         return ReservationResponse.fromEntity(reservation);
     }
 
@@ -129,19 +116,14 @@ public class ReservationService {
         Reservation reservation = reservationRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Reservation", "id", id));
 
-        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
-        String currentUsername = authentication.getName();
-        boolean isAdmin = authentication.getAuthorities().stream()
-                .anyMatch(a -> a.getAuthority().equals(Role.ROLE_ADMIN.name()));
-
-        if (!isAdmin && !reservation.getUser().getUsername().equals(currentUsername)) {
+        Authentication auth = currentAuthentication();
+        if (!isAdmin(auth) && !reservation.getUser().getUsername().equals(auth.getName())) {
             throw new AccessDeniedException("You do not have permission to cancel this reservation");
         }
 
         reservation.setStatus(ReservationStatus.CANCELLED);
         Reservation updated = reservationRepository.save(reservation);
-        log.info("Reservation with ID: {} was cancelled by: {}", id, currentUsername);
-
+        log.info("Reservation with ID: {} was cancelled by: {}", id, auth.getName());
         return ReservationResponse.fromEntity(updated);
     }
 
@@ -153,15 +135,27 @@ public class ReservationService {
         reservation.setStatus(newStatus);
         Reservation updated = reservationRepository.save(reservation);
         log.info("Reservation with ID: {} status updated to: {}", id, newStatus);
-
         return ReservationResponse.fromEntity(updated);
     }
 
-    private String getCurrentUsername() {
-        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
-        if (authentication == null || !authentication.isAuthenticated()) {
+    // ---------------------------------------------------------------------------
+    // Private helpers — DRY SecurityContext access and role check
+    // ---------------------------------------------------------------------------
+
+    private Authentication currentAuthentication() {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        if (auth == null || !auth.isAuthenticated()) {
             throw new AccessDeniedException("User is not authenticated");
         }
-        return authentication.getName();
+        return auth;
+    }
+
+    private String currentUsername() {
+        return currentAuthentication().getName();
+    }
+
+    private boolean isAdmin(Authentication auth) {
+        return auth.getAuthorities().stream()
+                .anyMatch(a -> a.getAuthority().equals(Role.ROLE_ADMIN.name()));
     }
 }

@@ -42,8 +42,11 @@ public class ResourceService {
                 .collect(Collectors.toList());
     }
 
+    /**
+     * Paginated variant — used by GET /api/resources?page=&size=&sort=
+     */
     @Transactional(readOnly = true)
-    public Page<ResourceResponse> getAllResources(Pageable pageable) {
+    public Page<ResourceResponse> getAllResourcesPaged(Pageable pageable) {
         return resourceRepository.findAll(pageable)
                 .map(ResourceResponse::fromEntity);
     }
@@ -53,12 +56,6 @@ public class ResourceService {
         Resource resource = resourceRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Resource", "id", id));
         return ResourceResponse.fromEntity(resource);
-    }
-
-    @Transactional(readOnly = true)
-    public Resource findEntityById(Long id) {
-        return resourceRepository.findById(id)
-                .orElseThrow(() -> new ResourceNotFoundException("Resource", "id", id));
     }
 
     @Transactional
