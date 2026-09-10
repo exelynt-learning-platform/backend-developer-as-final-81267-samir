@@ -2,6 +2,7 @@ package com.system.booking.service;
 
 import com.system.booking.dto.request.ReservationRequest;
 import com.system.booking.dto.response.ReservationResponse;
+import com.system.booking.exception.ResourceConflictException;
 import com.system.booking.exception.ResourceNotFoundException;
 import com.system.booking.model.entity.Reservation;
 import com.system.booking.model.entity.Resource;
@@ -58,7 +59,7 @@ public class ReservationService {
         );
 
         if (isOverlapping) {
-            throw new IllegalArgumentException("Resource is already booked for the selected time window");
+            throw new ResourceConflictException("Resource is already booked for the selected time window");
         }
 
         Reservation reservation = Reservation.builder()
